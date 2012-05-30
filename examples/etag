@@ -1,0 +1,31 @@
+package etag;
+use strict;
+use warnings;
+use List::Util qw/max/;
+
+my @mtime;
+
+sub start { !$blosxom::static_entries }
+
+sub date { push @mtime, $_[3] }
+
+sub last {
+    return unless $blosxom::output; 
+    my $header = $blosxom::header;
+
+    if ( @mtime ) {
+        my $mtime = max @mtime;
+        my $is_weak = $mtime == time - 1 ? 'W/' : q{};
+        my $size = length $blosxom::output;
+        $header->{-etag} = sprintf '%s"%x-%x"', $is_weak, $mtime, $size;
+    }
+    else {
+        require Digest::MD5;
+        my $etag = Digest::MD5::md5_hex( $blosxom::output );
+        $header->{-etag} = qq{"$etag"};
+    }
+
+    return;
+}
+
+1;

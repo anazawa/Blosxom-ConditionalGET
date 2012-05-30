@@ -1,0 +1,164 @@
+# Blosxom plugin : conditional_get
+# Purpose        : enables conditional GET
+# Author         : Ryo Anazawa <anazawa@cpan.org>
+# Version        : 0.02001 (2012/05/29)
+# Documentation  : See the bottom of this file or type: perldoc conditional_get
+
+package conditional_get;
+use 5.008_009;
+use strict;
+use warnings;
+
+our $VERSION = '0.02001';
+
+# Whether to allow the use of weak validators or not (defaults to false)
+our $WEAK_COMPARISON = 0;
+
+sub start { !$blosxom::static_entries }
+
+sub last {
+    my $header = $blosxom::header;
+    my $method = $ENV{REQUEST_METHOD} || q{};
+
+    return if $method ne 'GET' and $method ne 'HEAD';
+    return unless etag_matches() or not_modified_since();
+
+    my @fields = qw/-content_disposition -attachment -content_length/;
+    delete @{ $header }{ @fields };
+
+    $header->{-status} = '304 Not Modified';
+
+    # If Content-Type isn't defined,
+    # CGI::header() will add the default value.
+    # And so makes it defined
+    $header->{-type} = q{};
+
+    # Truncate output
+    $blosxom::output = q{};
+
+    return;
+}
+
+# NOTE: Quoted comments were taken from Plack::Middleware::ConditionalGET
+
+# > RFC 2616 14.25 says it's OK and expected to use 'eq' :)
+# >> Note: When handling an If-Modified-Since header field, some
+# >> servers will use an exact date comparison function, rather than a
+# >> less-than function, for deciding whether to send a 304 ...
+
+sub not_modified_since {
+    my $last_modified     = $blosxom::header->{-last_modified};
+    my $if_modified_since = $ENV{HTTP_IF_MODIFIED_SINCE};
+
+    return unless $last_modified and $if_modified_since;
+
+    # > IE sends wrong formatted value
+    # > i.e. "Thu, 03 Dec 2009 01:46:32 GMT; length=17936"
+    $if_modified_since =~ s/;.*$//;
+
+    $last_modified eq $if_modified_since;
+}
+
+sub etag_matches {
+    my $etag          = $blosxom::header->{-etag};
+    my $if_none_match = $ENV{HTTP_IF_NONE_MATCH};
+
+    return unless $etag and $if_none_match;
+    
+    if ( $WEAK_COMPARISON ) {
+        $etag          =~ s{^W/}{};
+        $if_none_match =~ s{^W/}{};
+    }
+    else {
+        return if $etag          =~ m{^W/};
+        return if $if_none_match =~ m{^W/};
+    }
+
+    $etag ne q{""} and $etag eq $if_none_match;
+}
+
+1;
+
+__END__
+
+=head1 NAME
+
+Blosxom Plug-in: conditional_get
+
+=head1 DESCRIPTION
+
+Enables condtional GET and HEAD using C<If-None-Match> and
+C<If-Modified-Since> header.
+
+The application should set either or both of C<Last-Modified>
+or C<ETag> response headers according to RFC 2616.
+When either of the conditions is met, the response body is set
+to be zero length and the status is set to 304 Not Modified.
+
+This plugin is compatible with L<Blosxom::Header>.
+
+=head2 INSTALLATION
+
+'cd' into a directory called 't', and test the plugin:
+
+  $ prove *.t
+
+If you got 'All tests successful',
+drop the conditional_get plug-in into your Blosxom plugins folder.
+
+=head1 LIMITATIONS
+
+This plugin adds neither C<Last-Modified> nor
+C<ETag> response headers. You have to add either or both headers
+in your own way. For example,
+
+  package last_modified;
+  use strict;
+  use warnings;
+  use HTTP::Date;
+  use List::Util qw/max/;
+
+  my @mtime;
+
+  sub start { !$blosxom::static_entries }
+
+  sub date { push @mtime, $_[3] }
+
+  sub last {
+      return unless @mtime;
+      my $latest = max @mtime;
+      $blosxom::header->{-last_modified} = time2str( $latest );
+  }
+
+  1;
+
+NOTE: The Last-Modified and ETag headers must be set before this plugin is
+called.
+
+=head1 DEPENDENCIES
+
+L<Blosxom 2.0.0|http://blosxom.sourceforge.org> or higher.
+
+Tests require L<Test::More>, L<Test::Base> and L<YAML>.
+
+=head1 SEE ALSO
+
+L<Plack::Middleware::ConditionalGET>
+
+=head1 AUTHOR
+
+Ryo Anazawa <anazawa@cpan.org>,
+https://github.com/anazawa/
+
+=head1 LICENSE AND COPYRIGHT
+
+Copyright (c) 2012 Ryo Anazawa. All rights reserved.
+
+This module is free software; you can redistribute it and/or
+modify it under the same terms as Perl itself. See L<perlartistic>.
+
+This program is distributed in the hope that it will we useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY of FITNESS FOR A PARTICULAR PURPOSE.
+
+=cut

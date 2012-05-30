@@ -1,0 +1,19 @@
+package last_modified;
+use strict;
+use warnings;
+use HTTP::Date;
+use List::Util qw/max/;
+
+my @mtime;
+
+sub start { !$blosxom::static_entries }
+
+sub date { push @mtime, $_[3] }
+
+sub last {
+    return unless @mtime;
+    my $latest = max( @mtime );
+    $blosxom::header->{-last_modified} = time2str( $latest );
+}
+
+1;
